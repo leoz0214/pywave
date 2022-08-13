@@ -42,13 +42,9 @@ class WaveMetadata:
         """
         return self.bit_depth // 8 * self.channels
 
-    def _get_duration(self, sample_count: int) -> float:
+    def _get_duration(self, byte_count: int) -> float:
         # Seconds of audio.
-        return (
-            sample_count
-            / (self.bit_depth // 8)
-            / self.channels
-            / self.sample_rate)
+        return byte_count / self.get_bytes_per_frame() / self.sample_rate
 
 
 class WaveData:
@@ -106,7 +102,7 @@ class WaveData:
         """
         if multiplier == 1:
             # No change.
-            return WaveData(self.data, self.info)
+            return WaveData(self.data, self.info, self._byte_count)
         elif multiplier <= 0:
             # Not possible.
             raise ValueError("Multiplier must be greater than 0.")

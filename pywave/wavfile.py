@@ -30,7 +30,8 @@ def read(file_location: str) -> wavdata.WaveData:
         file.write(f.readframes(remainder))
         file.seek(0)
 
-        return wavdata.WaveData(file, metadata, frame_count * bit_depth // 8 * channels)
+        return wavdata.WaveData(
+            file, metadata, frame_count * bit_depth // 8 * channels)
 
 
 def write(wave_data: wavdata.WaveData, file_location: str) -> None:

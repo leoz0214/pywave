@@ -1,7 +1,7 @@
 import tempfile
 
 
-def create_temp_file(data: bytes = None) -> tempfile._TemporaryFileWrapper:
+def create_temp_file(data: bytes = None) -> tempfile.TemporaryFile:
     """
     Creates a temporary file, writes data to it,
     and returns it to be accessed later.
