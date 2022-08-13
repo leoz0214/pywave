@@ -2,6 +2,8 @@ import math
 import fractions
 from typing import Union
 
+import _utils
+
 """
 Holds the WaveData class, which contains
 the audio bytes and corresponding metadata.
@@ -16,7 +18,7 @@ class WaveMetadata:
     """
 
     def __init__(
-        self, sample_rate: Union[int, float], bit_depth: int, channels: int
+        self, sample_rate: Union[int, float], bit_depth: int, channels: int,
     ) -> None:
         """
         'sample_rate' - number of audio samples per second (Hz);
@@ -29,18 +31,19 @@ class WaveMetadata:
     
     def get_bitrate(self) -> Union[int, float]:
         """
-        Number of bits used per second of audio.
+        Number of bits of data per second of audio.
         Found by sample rate * bit depth * channel count
         """
         return self.sample_rate * self.bit_depth * self.channels
     
-    def get_bytes_per_cycle(self) -> int:
+    def get_bytes_per_frame(self) -> int:
         """
         Number of bytes for each channel to output one sample.
         """
         return self.bit_depth // 8 * self.channels
 
     def _get_duration(self, sample_count: int) -> float:
+        # Seconds of audio.
         return (
             sample_count
             / (self.bit_depth // 8)
@@ -50,14 +53,30 @@ class WaveMetadata:
 
 class WaveData:
 
-    def __init__(self, data: bytes, metadata: WaveMetadata) -> None:
+    def __init__(self, data, metadata: WaveMetadata, byte_count: int) -> None:
         """
-        'data' - the bytes of the raw audio;
+        NOT TO BE INITIALISED INTERNALLY.
+
+        'data' - the bytes of the raw audio in a temporary file;
         'metadata' - information about the audio.
-        A WaveMetadata object must be passed in.
+        A WaveMetadata object is passed in.
         """
         self.data = data
+        self._byte_count = byte_count
         self.info = metadata
+
+    def _frames(self) -> None:
+        # Internal generator to get frames of audio.
+        return self._chunks(self.info.get_bytes_per_frame())
+    
+    def _chunks(self, byte_count: int) -> None:
+        # Internal generator to get audio in chunks.
+        self.data.seek(0)
+        chunk = self.data.read(byte_count)
+
+        while chunk != b"":
+            yield chunk
+            chunk = self.data.read(byte_count)
 
     def change_speed_by_multiplier(
         self, multiplier: Union[int, float],
@@ -71,8 +90,7 @@ class WaveData:
         The speed can be changed either by changing the
         sample count, or the sample rate (default).
 
-        Changing sample rate is much faster, but this is not necessary
-        to change audio speed.
+        Changing sample rate is much faster.
 
         If you are slowing down audio, it is best to change by sample
         rate to avoid issues. But you can still keep the same sample
@@ -97,21 +115,25 @@ class WaveData:
             # Invalid mode.
             raise ValueError(
                 "change_sample must either be 'count' or 'rate'.")
+
+        file = _utils.create_temp_file()
         
         if change_sample == "count":
-            sample_multiplier = round(1 / multiplier, 10)
-            bytes_per_cycle = self.info.get_bytes_per_cycle()
+            new = []
+            sample_multiplier = round(1 / multiplier, 8)
+            frame_count = 0
 
-            upper = math.ceil(sample_multiplier)
-            lower = math.floor(sample_multiplier)
-
-            decimal_part = round(sample_multiplier % 1, 10)
+            decimal_part = round(sample_multiplier % 1, 8)
             if not decimal_part:
                 sample_multiplier = int(sample_multiplier)
-                new = []
-                for i in range(0, len(self.data), bytes_per_cycle):
-                    new.extend(
-                        self.data[i:i+bytes_per_cycle] * sample_multiplier)
+
+                for frame in self._frames():
+                    new.extend(frame * sample_multiplier)
+                    frame_count += sample_multiplier
+                    
+                    if len(new) > 100000:
+                        file.write(bytes(new))
+                        new.clear()
             else:
                 # Any decimal parts are dealt with.
                 # For example if the multiplier is set to 0.8,
@@ -119,28 +141,74 @@ class WaveData:
                 # 1.25 = 1 1/4
                 # So 1/4 of cycles will be doubled, whilst the
                 # remaining 3/4 of cycles will stay as one.
+                upper = math.ceil(sample_multiplier)
+                lower = math.floor(sample_multiplier)
+
                 fraction = fractions.Fraction(
-                    decimal_part).limit_denominator(10 ** 10)
+                    decimal_part).limit_denominator(10 ** 8)
                 numerator, denominator = fraction.as_integer_ratio()
 
-                new = []
-                for i in range(0, len(self.data), bytes_per_cycle):
-                    new.extend(self.data[i:i+bytes_per_cycle] * (
-                        upper if (
-                            (i * numerator) % (denominator * bytes_per_cycle)
-                            < numerator * bytes_per_cycle
-                        ) else lower))
+                for i, frame in enumerate(self._frames()):
+                    frames_to_add = (upper if (
+                        (i * numerator) % (denominator) < numerator)
+                        else lower)
+
+                    new.extend(frame * frames_to_add)
+                    frame_count += frames_to_add
+
+                    if len(new) > 100000:
+                        file.write(bytes(new))
+                        new.clear()
             
-            return WaveData(bytes(new), self.info)
+            file.write(bytes(new))
+            byte_count = frame_count * self.info.get_bytes_per_frame()
+            print(byte_count)
+
+            return WaveData(file, self.info, byte_count)
         
         new_sample_rate = self.info.sample_rate * multiplier
         new_metadata = WaveMetadata(
             new_sample_rate, self.info.bit_depth, self.info.channels)
+        
+        for chunk in self._chunks(100000):
+            file.write(chunk)
 
-        return WaveData(self.data, new_metadata)
+        return WaveData(file, new_metadata, self._byte_count)
     
-    def get_duration(self):
+    def fit_time(
+        self, seconds: Union[int, float], change_sample: str = "rate"
+    ) -> "WaveData":
+        """
+        Changes audio duration to a certain number of seconds, by
+        changing the speed of audio playback. For example, if a 50
+        second audio file is converted into a 25 second audio file,
+        the speed would double.
+
+        The speed (and thus duration) can be changed either
+        by changing the sample count, or the sample rate (default).
+
+        Changing sample rate is much faster, but this is not necessary.
+
+        If you are increasing duration, it is best to change by sample
+        rate to avoid issues. But you can still keep the same sample
+        rate and change the number of samples instead. But this could
+        damage the audio playback.
+
+        To change by sample count, pass in change_sample as 'count',
+        and to change by sample rate, pass in change_sample as 'rate'.
+        The default is to change by sample rate.
+
+        A new WaveData object is returned with the duration changed
+        successfully, and the audio fit to the time specified.
+        """
+        if seconds <= 0:
+            raise ValueError("seconds must be greater than 0.")
+
+        multiplier = round(self.get_duration() / seconds, 8)
+        return self.change_speed_by_multiplier(multiplier, change_sample)
+    
+    def get_duration(self) -> float:
         """
         Number of seconds of audio.
         """
-        return self.info._get_duration(len(self.data))
+        return self.info._get_duration(self._byte_count)
