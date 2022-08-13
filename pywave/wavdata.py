@@ -33,6 +33,19 @@ class WaveMetadata:
         Found by sample rate * bit depth * channel count
         """
         return self.sample_rate * self.bit_depth * self.channels
+    
+    def get_bytes_per_cycle(self) -> int:
+        """
+        Number of bytes for each channel to output one sample.
+        """
+        return self.bit_depth // 8 * self.channels
+
+    def _get_duration(self, sample_count: int) -> float:
+        return (
+            sample_count
+            / (self.bit_depth // 8)
+            / self.channels
+            / self.sample_rate)
 
 
 class WaveData:
@@ -77,35 +90,46 @@ class WaveData:
             # No change.
             return WaveData(self.data, self.info)
         elif multiplier <= 0:
+            # Not possible.
             raise ValueError("Multiplier must be greater than 0.")
 
         if change_sample not in ("count", "rate"):
+            # Invalid mode.
             raise ValueError(
                 "change_sample must either be 'count' or 'rate'.")
         
         if change_sample == "count":
-            new_sample_count = round(1 / multiplier, 10)
-            parts_size = self.info.bit_depth // 8 * self.info.channels
+            sample_multiplier = round(1 / multiplier, 10)
+            bytes_per_cycle = self.info.get_bytes_per_cycle()
 
-            upper = math.ceil(new_sample_count)
-            lower = math.floor(new_sample_count)
+            upper = math.ceil(sample_multiplier)
+            lower = math.floor(sample_multiplier)
 
-            decimal_part = round(new_sample_count - int(new_sample_count), 10)
+            decimal_part = round(sample_multiplier % 1, 10)
             if not decimal_part:
-                numerator = int(new_sample_count)
-                denominator = 1         
+                sample_multiplier = int(sample_multiplier)
+                new = []
+                for i in range(0, len(self.data), bytes_per_cycle):
+                    new.extend(
+                        self.data[i:i+bytes_per_cycle] * sample_multiplier)
             else:
+                # Any decimal parts are dealt with.
+                # For example if the multiplier is set to 0.8,
+                # The new sample count would be x1.25.
+                # 1.25 = 1 1/4
+                # So 1/4 of cycles will be doubled, whilst the
+                # remaining 3/4 of cycles will stay as one.
                 fraction = fractions.Fraction(
                     decimal_part).limit_denominator(10 ** 10)
                 numerator, denominator = fraction.as_integer_ratio()
 
-            new = []
-            for i in range(0, len(self.data), parts_size):
-                new.extend(self.data[i:i+parts_size] * (
-                    upper if (
-                        (i * numerator) % (denominator * parts_size)
-                        < numerator * parts_size
-                    ) else lower))
+                new = []
+                for i in range(0, len(self.data), bytes_per_cycle):
+                    new.extend(self.data[i:i+bytes_per_cycle] * (
+                        upper if (
+                            (i * numerator) % (denominator * bytes_per_cycle)
+                            < numerator * bytes_per_cycle
+                        ) else lower))
             
             return WaveData(bytes(new), self.info)
         
@@ -114,13 +138,9 @@ class WaveData:
             new_sample_rate, self.info.bit_depth, self.info.channels)
 
         return WaveData(self.data, new_metadata)
-
-    def get_length(self) -> float:
+    
+    def get_duration(self):
         """
         Number of seconds of audio.
         """
-        return (
-            len(self.data)
-            / (self.info.bit_depth // 8)
-            / self.info.channels
-            / self.info.sample_rate)
+        return self.info._get_duration(len(self.data))
