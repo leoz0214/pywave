@@ -49,7 +49,9 @@ class WaveMetadata:
 
 class WaveData:
 
-    def __init__(self, data, metadata: WaveMetadata, byte_count: int) -> None:
+    def __init__(
+        self, data: _utils.tempfile._TemporaryFileWrapper,
+        metadata: WaveMetadata, byte_count: int) -> None:
         """
         NOT TO BE INITIALISED INTERNALLY.
 
@@ -57,7 +59,7 @@ class WaveData:
         'metadata' - information about the audio.
         A WaveMetadata object is passed in.
         """
-        self.data = data
+        self._data = data
         self._byte_count = byte_count
         self.info = metadata
 
@@ -67,14 +69,21 @@ class WaveData:
     
     def _chunks(self, byte_count: int) -> None:
         # Internal generator to get audio in chunks.
-        self.data.seek(0)
-        chunk = self.data.read(byte_count)
+        self._data.seek(0)
+        chunk = self._data.read(byte_count)
 
         while chunk != b"":
             yield chunk
-            chunk = self.data.read(byte_count)
+            chunk = self._data.read(byte_count)
+    
+    def _copy(self) -> "WaveData":
+        # Returns a copy of self.
+        file = _utils.create_temp_file()
+        for chunk in self._chunks(100000):
+            file.write(chunk)
+        return WaveData(file, self.info, self._byte_count)
 
-    def change_speed_by_multiplier(
+    def change_speed(
         self, multiplier: Union[int, float],
         change_sample: str = "rate") -> "WaveData":
         """
@@ -102,15 +111,18 @@ class WaveData:
         """
         if multiplier == 1:
             # No change.
-            return WaveData(self.data, self.info, self._byte_count)
-        elif multiplier <= 0:
-            # Not possible.
-            raise ValueError("Multiplier must be greater than 0.")
+            return self._copy()
+        elif multiplier < 0.01:
+            # Processing takes way too long / not possible.
+            raise ValueError("Multiplier must be at least 0.01")
+        elif multiplier > 100:
+            # Processing takes way too long.
+            raise ValueError("Multiplier cannot be greater than 100")
 
         if change_sample not in ("count", "rate"):
             # Invalid mode.
             raise ValueError(
-                "change_sample must either be 'count' or 'rate'.")
+                "'change_sample' must either be 'count' or 'rate'.")
 
         file = _utils.create_temp_file()
         
@@ -146,7 +158,7 @@ class WaveData:
 
                 for i, frame in enumerate(self._frames()):
                     frames_to_add = (upper if (
-                        (i * numerator) % (denominator) < numerator)
+                        (i * numerator) % denominator < numerator)
                         else lower)
 
                     new.extend(frame * frames_to_add)
@@ -158,7 +170,6 @@ class WaveData:
             
             file.write(bytes(new))
             byte_count = frame_count * self.info.get_bytes_per_frame()
-            print(byte_count)
 
             return WaveData(file, self.info, byte_count)
         
@@ -201,10 +212,98 @@ class WaveData:
             raise ValueError("seconds must be greater than 0.")
 
         multiplier = round(self.get_duration() / seconds, 8)
-        return self.change_speed_by_multiplier(multiplier, change_sample)
+        return self.change_speed(multiplier, change_sample)
     
     def get_duration(self) -> float:
         """
         Number of seconds of audio.
         """
         return self.info._get_duration(self._byte_count)
+    
+    def change_sample_rate(
+        self, value: int = 44100, mode: str = "absolute"
+    ) -> "WaveData":
+        """
+        Changes the number of audio samples per second, without
+        noticeably altering the speed of audio playback
+        (at most, an extremely small change).
+
+        'value' - the corresponding number to 'mode'.
+
+        'mode' - how the sample rate is modified. It must be either
+        the string 'absolute' or 'multiplier'. 'absolute' simply
+        allows for the sample rate to be changed to a particular
+        value in Hz. 'multiplier' changes the sample rate by
+        multiplying the current sample rate to form a new sample rate.
+
+        The default arguments are 44100 for 'value' (44.1 kHz is a
+        commonly used sample rate), and 'absolute' for mode.
+
+        Note: A higher sample rate provides better audio quality, up
+        to a point when further increases in sample rate result in
+        no noticeable difference. However, a low sample rate results
+        in poor audio quality.
+        """
+        if mode == "absolute":
+            new_sample_rate = value
+        elif mode == "multiplier":
+            if value <= 0:
+                raise ValueError("'multiplier' must be a whole number")
+            new_sample_rate = self.info.sample_rate * value
+        else:
+            raise ValueError(
+                "'mode' must either be 'absolute' or 'multiplier'")
+        
+        if new_sample_rate < 1:
+            raise ValueError("New sample rate too low")
+        elif new_sample_rate == self.info.sample_rate:
+            # No change.
+            return self._copy()
+        
+        multiplier = (
+            value if mode == "multiplier"
+            else new_sample_rate / self.info.sample_rate)
+        
+        file = _utils.create_temp_file()
+        new = []
+        frame_count = 0
+
+        decimal_part = round(multiplier % 1, 10)
+        if not decimal_part:
+            multiplier = int(multiplier)
+
+            for frame in self._frames():
+                new.extend(frame * multiplier)
+                frame_count += multiplier
+
+                if len(new) > 100000:
+                    file.write(bytes(new))
+                    new.clear()
+
+        else:
+            upper = math.ceil(multiplier)
+            lower = math.floor(multiplier)
+
+            fraction = fractions.Fraction(
+                decimal_part).limit_denominator(10 ** 10)
+            numerator, denominator = fraction.as_integer_ratio()
+
+            for i, frame in enumerate(self._frames()):
+                frames_to_add = (upper if
+                    (i * numerator) % denominator < numerator
+                    else lower)
+                
+                new.extend(frame * frames_to_add)
+                frame_count += frames_to_add
+
+                if len(new) > 100000:
+                    file.write(bytes(new))
+                    new.clear()
+
+        file.write(bytes(new))
+        byte_count = frame_count * self.info.get_bytes_per_frame()
+
+        new_metadata = WaveMetadata(
+            new_sample_rate, self.info.bit_depth, self.info.channels)
+        
+        return WaveData(file, new_metadata, byte_count)
