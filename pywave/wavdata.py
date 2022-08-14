@@ -127,49 +127,8 @@ class WaveData:
         file = _utils.create_temp_file()
         
         if change_sample == "count":
-            new = []
             sample_multiplier = round(1 / multiplier, 8)
-            frame_count = 0
-
-            decimal_part = round(sample_multiplier % 1, 8)
-            if not decimal_part:
-                sample_multiplier = int(sample_multiplier)
-
-                for frame in self._frames():
-                    new.extend(frame * sample_multiplier)
-                    frame_count += sample_multiplier
-                    
-                    if len(new) > 100000:
-                        file.write(bytes(new))
-                        new.clear()
-            else:
-                # Any decimal parts are dealt with.
-                # For example if the multiplier is set to 0.8,
-                # The new sample count would be x1.25.
-                # 1.25 = 1 1/4
-                # So 1/4 of cycles will be doubled, whilst the
-                # remaining 3/4 of cycles will stay as one.
-                upper = math.ceil(sample_multiplier)
-                lower = math.floor(sample_multiplier)
-
-                fraction = fractions.Fraction(
-                    decimal_part).limit_denominator(10 ** 8)
-                numerator, denominator = fraction.as_integer_ratio()
-
-                for i, frame in enumerate(self._frames()):
-                    frames_to_add = (upper if (
-                        (i * numerator) % denominator < numerator)
-                        else lower)
-
-                    new.extend(frame * frames_to_add)
-                    frame_count += frames_to_add
-
-                    if len(new) > 100000:
-                        file.write(bytes(new))
-                        new.clear()
-            
-            file.write(bytes(new))
-            byte_count = frame_count * self.info.get_bytes_per_frame()
+            file, byte_count = _multiply_frames(self, sample_multiplier)        
 
             return WaveData(file, self.info, byte_count)
         
@@ -264,6 +223,18 @@ class WaveData:
             value if mode == "multiplier"
             else new_sample_rate / self.info.sample_rate)
         
+        file, byte_count = _multiply_frames(self, multiplier)
+
+        new_metadata = WaveMetadata(
+            new_sample_rate, self.info.bit_depth, self.info.channels)
+        
+        return WaveData(file, new_metadata, byte_count)
+
+
+def _multiply_frames(
+        wave_data: WaveData, multiplier: Union[int, float]
+    ) -> tuple[_utils.tempfile._TemporaryFileWrapper, int]:
+        # Multiplies the number of frames of audio.
         file = _utils.create_temp_file()
         new = []
         frame_count = 0
@@ -272,7 +243,7 @@ class WaveData:
         if not decimal_part:
             multiplier = int(multiplier)
 
-            for frame in self._frames():
+            for frame in wave_data._frames():
                 new.extend(frame * multiplier)
                 frame_count += multiplier
 
@@ -288,7 +259,7 @@ class WaveData:
                 decimal_part).limit_denominator(10 ** 10)
             numerator, denominator = fraction.as_integer_ratio()
 
-            for i, frame in enumerate(self._frames()):
+            for i, frame in enumerate(wave_data._frames()):
                 frames_to_add = (upper if
                     (i * numerator) % denominator < numerator
                     else lower)
@@ -301,9 +272,6 @@ class WaveData:
                     new.clear()
 
         file.write(bytes(new))
-        byte_count = frame_count * self.info.get_bytes_per_frame()
+        byte_count = frame_count * wave_data.info.get_bytes_per_frame()
 
-        new_metadata = WaveMetadata(
-            new_sample_rate, self.info.bit_depth, self.info.channels)
-        
-        return WaveData(file, new_metadata, byte_count)
+        return file, byte_count    
