@@ -5,9 +5,10 @@ the audio bytes and corresponding metadata.
 The metadata is stored in the WaveMetadata class.
 """
 
+import sys
 import math
 import fractions
-from typing import Union
+from typing import Union, Literal
 
 from . import _utils
 
@@ -70,12 +71,16 @@ class WaveData:
         # Internal generator to get frames of audio.
         return self._chunks(self.info.get_bytes_per_frame())
     
+    def _samples(self) -> None:
+        # Internal generator to get audio samples.
+        return self._chunks(self.info.bit_depth // 8)
+    
     def _chunks(self, byte_count: int) -> None:
         # Internal generator to get audio in chunks.
         self._data.seek(0)
         chunk = self._data.read(byte_count)
 
-        while chunk != b"":
+        while chunk:
             yield chunk
             chunk = self._data.read(byte_count)
     
@@ -88,7 +93,7 @@ class WaveData:
 
     def change_speed(
         self, multiplier: Union[int, float],
-        change_sample: str = "rate") -> "WaveData":
+        change_sample: Literal["rate", "count"] = "rate") -> "WaveData":
         """
         Changes playback speed of the audio by a given multiplier.
         For example, a multiplier of 2 would make the audio play
@@ -145,8 +150,8 @@ class WaveData:
         return WaveData(file, new_metadata, self._byte_count)
     
     def fit_time(
-        self, seconds: Union[int, float], change_sample: str = "rate"
-    ) -> "WaveData":
+        self, seconds: Union[int, float],
+        change_sample: Literal["rate", "count"]) -> "WaveData":
         """
         Changes audio duration to a certain number of seconds, by
         changing the speed of audio playback. For example, if a 50
@@ -183,8 +188,8 @@ class WaveData:
         return self.info._get_duration(self._byte_count)
     
     def change_sample_rate(
-        self, value: int = 44100, mode: str = "absolute"
-    ) -> "WaveData":
+        self, value: Union[int, float] = 44100,
+        mode: Literal["absolute", "multiplier"] = "absolute") -> "WaveData":
         """
         Changes the number of audio samples per second, without
         noticeably altering the speed of audio playback
@@ -232,6 +237,64 @@ class WaveData:
 
         new_metadata = WaveMetadata(
             new_sample_rate, self.info.bit_depth, self.info.channels)
+        
+        return WaveData(file, new_metadata, byte_count)
+    
+    def change_bit_depth(self, new_bit_depth: int) -> "WaveData":
+        """
+        Changes the number of bits used to store each sample.
+
+        Reducing bit depth reduces file size but also quality.
+
+        Bit depth must either be 8, 16, 24 or 32 bits.
+        """
+        if new_bit_depth not in (8, 16, 24, 32):
+            raise ValueError(
+                "New bit depth must be either 8, 16, 24 or 32 bits.")
+        
+        # In case of valid float / numeric type input.
+        new_bit_depth = int(new_bit_depth)
+
+        if new_bit_depth == self.info.bit_depth:
+            # No change
+            return self._copy()
+
+        bytes_per_new_frame = new_bit_depth // 8
+        multiplier = 2 ** (new_bit_depth - self.info.bit_depth)
+
+        from_8_bits = self.info.bit_depth == 8
+        to_8_bits = new_bit_depth == 8
+
+        file = _utils.create_temp_file()
+        new = []
+
+        for sample in self._samples():
+            # 8 bit must be signed, otherwise unsigned.
+            # From 8 bit: signed -> unsigned
+            # To 8 bit: unsigned -> signed
+            int_value = int.from_bytes(
+                sample, sys.byteorder, signed=from_8_bits)
+        
+            new_int_value = (
+                int((int_value + 128) * multiplier) if from_8_bits
+                else int(int_value * multiplier) - 128 if to_8_bits
+                else int(int_value * multiplier))
+
+            new_frame = new_int_value.to_bytes(
+                bytes_per_new_frame, sys.byteorder, signed=to_8_bits)
+            new.extend(new_frame)
+
+            if len(new) > 100000:
+                file.write(bytes(new))
+                new.clear()
+        
+        file.write(bytes(new))
+        
+        new_metadata = WaveMetadata(
+            self.info.sample_rate, new_bit_depth, self.info.channels)
+
+        byte_count = round(
+            self._byte_count * (new_bit_depth / self.info.bit_depth))
         
         return WaveData(file, new_metadata, byte_count)
 

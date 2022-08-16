@@ -36,13 +36,16 @@ class _AudioPlayback:
     def _play(self, pass_count: int = 0) -> None:
         # Interal audio playback. Can be threaded.
         pyaudio_object = pyaudio.PyAudio()
-        audio_format = pyaudio_object.get_format_from_width(
-            self._wav.info.bit_depth // 8)
+
+        int_type = (
+            pyaudio.paUInt8, pyaudio.paInt16,
+            pyaudio.paInt24, pyaudio.paInt32
+        )[self._wav.info.bit_depth // 8 - 1]
 
         try:
             stream = pyaudio_object.open(
                 self._wav.info.sample_rate, self._wav.info.channels,
-                audio_format, output=True)
+                int_type, output=True)
         except OSError:
             self._exception = RuntimeError(
                 "Unable to play audio - the sample rate is too {}.".format(
@@ -56,7 +59,7 @@ class _AudioPlayback:
 
         while self._play_count:
             current_pass_count = 0
-            for chunk in self._wav._chunks(100):
+            for chunk in self._wav._chunks(1200):
                 if pass_count:
                     pass_count -= 1
                 else:
@@ -154,7 +157,7 @@ def stop() -> None:
 
     If no audio is playing or paused, a RuntimeError is raised.
     """
-    if not _playback._playing and not _playback._paused:
+    if not (_playback._playing or _playback._paused):
         raise RuntimeError("Audio is not playing.")
     
     _playback._wav = None
