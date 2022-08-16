@@ -1,15 +1,15 @@
-import math
-import fractions
-from typing import Union
-
-import _utils
-
 """
-Holds the WaveData class, which contains
+This module holds the WaveData class, which contains
 the audio bytes and corresponding metadata.
 
 The metadata is stored in the WaveMetadata class.
 """
+
+import math
+import fractions
+from typing import Union
+
+from . import _utils
 
 
 class WaveMetadata:
@@ -18,8 +18,7 @@ class WaveMetadata:
     """
 
     def __init__(
-        self, sample_rate: Union[int, float], bit_depth: int, channels: int,
-    ) -> None:
+        self, sample_rate: int, bit_depth: int, channels: int) -> None:
         """
         'sample_rate' - number of audio samples per second (Hz);
         'bit_depth' - number of bits to store each sample;
@@ -29,7 +28,7 @@ class WaveMetadata:
         self.bit_depth = bit_depth
         self.channels = channels
     
-    def get_bitrate(self) -> Union[int, float]:
+    def get_bitrate(self) -> int:
         """
         Number of bits of data per second of audio.
         Found by sample rate * bit depth * channel count
@@ -53,7 +52,7 @@ class WaveData:
         self, data: _utils.tempfile._TemporaryFileWrapper,
         metadata: WaveMetadata, byte_count: int) -> None:
         """
-        NOT TO BE INITIALISED INTERNALLY.
+        NOT TO BE INITIALISED EXTERNALLY.
 
         'data' - the bytes of the raw audio in a temporary file;
         'metadata' - information about the audio.
@@ -62,6 +61,10 @@ class WaveData:
         self._data = data
         self._byte_count = byte_count
         self.info = metadata
+
+        self._player = None
+        self._playing = False
+        self._pass_count = 0
 
     def _frames(self) -> None:
         # Internal generator to get frames of audio.
@@ -132,7 +135,7 @@ class WaveData:
 
             return WaveData(file, self.info, byte_count)
         
-        new_sample_rate = self.info.sample_rate * multiplier
+        new_sample_rate = round(self.info.sample_rate * multiplier)
         new_metadata = WaveMetadata(
             new_sample_rate, self.info.bit_depth, self.info.channels)
         
@@ -168,7 +171,7 @@ class WaveData:
         successfully, and the audio fit to the time specified.
         """
         if seconds <= 0:
-            raise ValueError("seconds must be greater than 0.")
+            raise ValueError("'seconds' must be greater than 0.")
 
         multiplier = round(self.get_duration() / seconds, 8)
         return self.change_speed(multiplier, change_sample)
@@ -212,6 +215,8 @@ class WaveData:
         else:
             raise ValueError(
                 "'mode' must either be 'absolute' or 'multiplier'")
+
+        new_sample_rate = round(new_sample_rate)
         
         if new_sample_rate < 1:
             raise ValueError("New sample rate too low")
@@ -250,7 +255,6 @@ def _multiply_frames(
                 if len(new) > 100000:
                     file.write(bytes(new))
                     new.clear()
-
         else:
             upper = math.ceil(multiplier)
             lower = math.floor(multiplier)

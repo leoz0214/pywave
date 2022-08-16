@@ -1,3 +1,7 @@
+"""
+Utility functions for the package.
+"""
+
 import tempfile
 
 
