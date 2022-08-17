@@ -40,7 +40,7 @@ class _AudioPlayback:
         int_type = (
             pyaudio.paUInt8, pyaudio.paInt16,
             pyaudio.paInt24, pyaudio.paInt32
-        )[self._wav.info.bit_depth // 8 - 1]
+        )[self._wav.info.byte_depth - 1]
 
         try:
             stream = pyaudio_object.open(
@@ -59,6 +59,9 @@ class _AudioPlayback:
 
         while self._play_count:
             current_pass_count = 0
+            # Chunk size is 1200 because it needs to be a multiple of
+            # 1, 2, 3 and 4
+            # Otherwise n byte depth will not play properly.
             for chunk in self._wav._chunks(1200):
                 if pass_count:
                     pass_count -= 1

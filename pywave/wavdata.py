@@ -29,6 +29,10 @@ class WaveMetadata:
         self.bit_depth = bit_depth
         self.channels = channels
     
+    @property
+    def byte_depth(self) -> int:
+        return self.bit_depth // 8
+    
     def get_bitrate(self) -> int:
         """
         Number of bits of data per second of audio.
@@ -40,7 +44,7 @@ class WaveMetadata:
         """
         Number of bytes for each channel to output one sample.
         """
-        return self.bit_depth // 8 * self.channels
+        return self.byte_depth * self.channels
 
     def _get_duration(self, byte_count: int) -> float:
         # Seconds of audio.
@@ -50,7 +54,7 @@ class WaveMetadata:
 class WaveData:
 
     def __init__(
-        self, data: _utils.tempfile._TemporaryFileWrapper,
+        self, temp_file: _utils.tempfile._TemporaryFileWrapper,
         metadata: WaveMetadata, byte_count: int) -> None:
         """
         NOT TO BE INITIALISED EXTERNALLY.
@@ -59,7 +63,7 @@ class WaveData:
         'metadata' - information about the audio.
         A WaveMetadata object is passed in.
         """
-        self._data = data
+        self._file = temp_file
         self._byte_count = byte_count
         self.info = metadata
 
@@ -73,16 +77,16 @@ class WaveData:
     
     def _samples(self) -> None:
         # Internal generator to get audio samples.
-        return self._chunks(self.info.bit_depth // 8)
+        return self._chunks(self.info.byte_depth)
     
     def _chunks(self, byte_count: int) -> None:
         # Internal generator to get audio in chunks.
-        self._data.seek(0)
-        chunk = self._data.read(byte_count)
+        self._file.seek(0)
+        chunk = self._file.read(byte_count)
 
         while chunk:
             yield chunk
-            chunk = self._data.read(byte_count)
+            chunk = self._file.read(byte_count)
     
     def _copy(self) -> "WaveData":
         # Returns a copy of self.
@@ -296,6 +300,52 @@ class WaveData:
         byte_count = round(
             self._byte_count * (new_bit_depth / self.info.bit_depth))
         
+        return WaveData(file, new_metadata, byte_count)
+    
+    def to_mono(self, channel_number: int = 1) -> "WaveData":
+        """
+        Converts audio into mono, by changing to only one
+        channel of audio.
+
+        To select the channel of audio to be used, pass in its
+        number. For the 1st channel, pass in 1; for the 8th channel
+        (if there is one), pass in 8. By default, the 1st channel
+        is used.
+
+        Warning: once audio is converted to mono, it obviously cannot
+        be converted back to its original channels.
+        """
+        if channel_number < 1:
+            raise ValueError("Channel number must be at least 1.")
+        elif channel_number > self.info.channels:
+            raise ValueError(
+                "Channel {} does not exist, there are only {} channels.".
+                format(channel_number, self.info.channels))
+        
+        if self.info.channels == 1:
+            # Already mono
+            return self._copy()
+
+        file = _utils.create_temp_file()
+        new = []
+
+        start_index = (channel_number - 1) * self.info.byte_depth
+        stop_index = start_index + self.info.byte_depth
+
+        for frame in self._frames():
+            new.extend(frame[start_index:stop_index])
+
+            if len(new) > 100000:
+                file.write(bytes(new))
+                new.clear()
+        
+        file.write(bytes(new))
+
+        new_metadata = WaveMetadata(
+            self.info.sample_rate, self.info.bit_depth, 1)
+        
+        byte_count = round(self._byte_count / self.info.channels)
+
         return WaveData(file, new_metadata, byte_count)
 
 

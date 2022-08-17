@@ -54,7 +54,7 @@ def write(
 
     with wave.open(file_location, "wb") as f:
         f.setframerate(wave_data.info.sample_rate)
-        f.setsampwidth(wave_data.info.bit_depth // 8) # Bits to bytes.
+        f.setsampwidth(wave_data.info.byte_depth)
         f.setnchannels(wave_data.info.channels)
 
         for chunk in wave_data._chunks(100000):
