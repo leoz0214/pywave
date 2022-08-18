@@ -33,7 +33,6 @@ def read(file_location: str) -> wavdata.WaveData:
         for _ in range(count):
             file.write(f.readframes(100000))
         file.write(f.readframes(remainder))
-        file.seek(0)
 
         return wavdata.WaveData(file, metadata, byte_count)
 

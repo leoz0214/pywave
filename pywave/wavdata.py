@@ -8,6 +8,7 @@ The metadata is stored in the WaveMetadata class.
 import sys
 import math
 import fractions
+import contextlib
 from typing import Union, Literal
 
 from . import _utils
@@ -71,22 +72,46 @@ class WaveData:
         self._playing = False
         self._pass_count = 0
 
-    def _frames(self) -> None:
+    def _frames(self, reversed: bool = False) -> None:
         # Internal generator to get frames of audio.
-        return self._chunks(self.info.get_bytes_per_frame())
+        return self._chunks(self.info.get_bytes_per_frame(), reversed)
     
-    def _samples(self) -> None:
+    def _samples(self, reversed: bool = False) -> None:
         # Internal generator to get audio samples.
-        return self._chunks(self.info.byte_depth)
+        return self._chunks(self.info.byte_depth, reversed)
     
-    def _chunks(self, byte_count: int) -> None:
+    def _chunks(self, byte_count: int, reversed: bool = False) -> None:
         # Internal generator to get audio in chunks.
-        self._file.seek(0)
-        chunk = self._file.read(byte_count)
+        if reversed:
+            # Cannot access first byte so must make modifications
+            # to so. Therefore even if last chunk is full, it still
+            # counts as the left.
+            count, left = divmod(self._byte_count - 1, byte_count)
+            left += 1
 
-        while chunk:
-            yield chunk
+            if not count:
+                self._file.seek(0)
+                yield self._file.read(left)
+                return
+
+            self._file.seek(-byte_count, 2)
             chunk = self._file.read(byte_count)
+
+            for _ in range(count):
+                yield chunk
+
+                self._file.seek(-byte_count * 2, 1)
+                chunk = self._file.read(byte_count)
+
+            self._file.seek(0)
+            yield self._file.read(left)
+        else:
+            self._file.seek(0)
+            chunk = self._file.read(byte_count)
+
+            while chunk:
+                yield chunk
+                chunk = self._file.read(byte_count)
     
     def _copy(self) -> "WaveData":
         # Returns a copy of self.
@@ -322,6 +347,9 @@ class WaveData:
                 "Channel {} does not exist, there are only {} channels.".
                 format(channel_number, self.info.channels))
         
+        # In case of valid float / numeric type input.
+        channel_number = int(channel_number)
+        
         if self.info.channels == 1:
             # Already mono
             return self._copy()
@@ -347,6 +375,80 @@ class WaveData:
         byte_count = round(self._byte_count / self.info.channels)
 
         return WaveData(file, new_metadata, byte_count)
+    
+    def decrease_volume(
+        self, value: Union[int, float],
+        mode: Literal["multiplier", "decibels"] = "multiplier") -> "WaveData":
+        """
+        Makes the audio quieter by reducing its amplitude.
+
+        'value' - the corresponding number to the mode.
+
+        'mode' - either the string 'multiplier' or 'decibels'.
+        'multiplier' just changes multiplies the audio amplitude
+        to decrease it. It must be greater than 0 and less than 1.
+        'decibels' indicates how many decibels (dB) to decrease the
+        audio volume by. Decibels are a logarithmic scale of how loud
+        sound is (log 10). Therefore, decreasing decibels by 10 would
+        make the audio 10 times quieter. And decreasing decibels by 3
+        would make the audio about 2 times quieter.
+
+        The default mode is 'multiplier'.
+
+        Warning: reducing volume drastically will make 8 bit audio
+        quality way worse. 16 bit audio and greater will not
+        face the same issues, however.
+        """
+        if mode == "multiplier":
+            if not 0 < value < 1:
+                raise ValueError(
+                    "Multiplier must be greater than 0 and less than 1.")
+            multiplier = value
+        elif mode == "decibels":
+            if value <= 0:
+                raise ValueError(
+                    "Decibels decrease must be greater than 0. "
+                    "If you are trying to decrease by a negative number, "
+                    "use a positive number instead.")
+            multiplier = 1 / (10 ** (value / 10))
+        else:
+            raise ValueError(
+                "'mode' must be either 'multiplier' or 'decibels'")
+        
+        file = _utils.create_temp_file()
+        new = []
+
+        # Only 8 bit WAVs are unsigned.
+        signed = self.info.bit_depth != 8
+
+        for sample in self._samples():
+            current_value = int.from_bytes(
+                sample, sys.byteorder, signed=signed)
+            
+            new_value = int(current_value * multiplier)
+            new_bytes = new_value.to_bytes(
+                self.info.byte_depth, sys.byteorder, signed=signed)
+
+            new.extend(new_bytes)
+
+            if len(new) > 100000:
+                file.write(bytes(new))
+                new.clear()
+        
+        file.write(bytes(new))
+        
+        return WaveData(file, self.info, self._byte_count)
+    
+    def reverse(self):
+        """
+        Reverses the audio data, for whatever reason.
+        """
+        file = _utils.create_temp_file()
+
+        for frame in self._frames(reversed=True):
+            file.write(frame)
+                   
+        return WaveData(file, self.info, self._byte_count)
 
 
 def _multiply_frames(
