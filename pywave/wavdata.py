@@ -8,7 +8,6 @@ The metadata is stored in the WaveMetadata class.
 import sys
 import math
 import fractions
-import contextlib
 from typing import Union, Literal
 
 from . import _utils
@@ -439,7 +438,7 @@ class WaveData:
         
         return WaveData(file, self.info, self._byte_count)
     
-    def reverse(self):
+    def reverse(self) -> "WaveData":
         """
         Reverses the audio data, for whatever reason.
         """
