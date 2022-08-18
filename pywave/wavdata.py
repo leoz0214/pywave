@@ -67,10 +67,6 @@ class WaveData:
         self._byte_count = byte_count
         self.info = metadata
 
-        self._player = None
-        self._playing = False
-        self._pass_count = 0
-
     def _frames(self, reversed: bool = False) -> None:
         # Internal generator to get frames of audio.
         return self._chunks(self.info.get_bytes_per_frame(), reversed)
