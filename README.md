@@ -12,6 +12,7 @@ you can do lots with the WAV data:
 - Get one channel of audio
 - Decrease audio volume
 - Reverse audio
+- Crop audio
 - Play audio
 
 Any modified WAV data can subsequently be saved to a file, and fingers crossed, your desired changes will be successful!
