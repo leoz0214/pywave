@@ -67,46 +67,70 @@ class WaveData:
         self._byte_count = byte_count
         self.info = metadata
 
-    def _frames(self, reversed: bool = False) -> None:
+    def _frames(
+        self, first: int = 1, last: Union[int, None] = None,
+        reversed: bool = False) -> None:
         # Internal generator to get frames of audio.
-        return self._chunks(self.info.get_bytes_per_frame(), reversed)
+        bytes_per_frame = self.info.get_bytes_per_frame()
+        first = (first - 1) * bytes_per_frame + 1
+        last = (last - 1) * bytes_per_frame + 1 if last else None
+        return self._chunks(bytes_per_frame, first, last, reversed)
     
-    def _samples(self, reversed: bool = False) -> None:
+    def _samples(
+        self, first: int = 1, last: Union[int, None] = None,
+        reversed: bool = False) -> None:
         # Internal generator to get audio samples.
-        return self._chunks(self.info.byte_depth, reversed)
+        byte_depth = self.info.byte_depth
+        first = (first - 1) * byte_depth + 1
+        last = (last - 1) * byte_depth + 1 if last else None
+        return self._chunks(self.info.byte_depth, first, last, reversed)
     
-    def _chunks(self, byte_count: int, reversed: bool = False) -> None:
+    def _chunks(self, byte_count: int, first: int = 1,
+        last: Union[int, None] = None, reversed: bool = False) -> None:
+
         # Internal generator to get audio in chunks.
         if reversed:
-            # Cannot access first byte so must make modifications
-            # to so. Therefore even if last chunk is full, it still
-            # counts as the left.
-            count, left = divmod(self._byte_count - 1, byte_count)
+            if last is None:
+                last = self._byte_count
+
+            count, left = divmod(last - first, byte_count)
+            # cannot file seek a negative number from the start.
             left += 1
 
             if not count:
-                self._file.seek(0)
+                self._file.seek(first - 1)
                 yield self._file.read(left)
                 return
 
-            self._file.seek(-byte_count, 2)
+            self._file.seek(last - byte_count)
             chunk = self._file.read(byte_count)
+            yield chunk
 
+            count -= 1
             for _ in range(count):
-                yield chunk
-
                 self._file.seek(-byte_count * 2, 1)
                 chunk = self._file.read(byte_count)
+                yield chunk
 
-            self._file.seek(0)
+            self._file.seek(first - 1)
             yield self._file.read(left)
         else:
-            self._file.seek(0)
-            chunk = self._file.read(byte_count)
+            self._file.seek(first - 1)
 
-            while chunk:
-                yield chunk
+            if last is None:
                 chunk = self._file.read(byte_count)
+
+                while chunk:
+                    yield chunk
+                    chunk = self._file.read(byte_count)
+            else:
+                count, left = divmod(last - first, byte_count)
+                left += 1
+
+                for _ in range(count):
+                    yield self._file.read(byte_count)                  
+                
+                yield self._file.read(left)
     
     def _copy(self) -> "WaveData":
         # Returns a copy of self.
@@ -239,7 +263,7 @@ class WaveData:
             new_sample_rate = value
         elif mode == "multiplier":
             if value <= 0:
-                raise ValueError("'multiplier' must be a whole number")
+                raise ValueError("'multiplier' must be greater than 0")
             new_sample_rate = self.info.sample_rate * value
         else:
             raise ValueError(
@@ -444,6 +468,76 @@ class WaveData:
             file.write(frame)
                    
         return WaveData(file, self.info, self._byte_count)
+
+    def crop(
+        self,
+        seconds_start: Union[int, float, None] = None,
+        seconds_stop: Union[int, float, None] = None
+    ) -> "WaveData":
+        """
+        Crops the WAV data, returning audio from a given time interval.
+
+        'seconds_start' - seconds to begin at (from start if None)
+        
+        'seconds_end' - seconds to end at (from end if None)
+
+        Note: only one of either start or stop can be None, at least
+        one of them has to be an actual number.
+        """
+        duration = self.get_duration()
+
+        if seconds_start is None and seconds_stop is None:
+            raise TypeError(
+                "A number was expected from either "
+                "'seconds_start' or 'seconds_stop'.")
+        elif seconds_start is None:
+            seconds_start = 0
+        elif seconds_stop is None:
+            seconds_stop = duration
+
+        duration = self.get_duration()
+
+        if seconds_start >= seconds_stop:
+            raise ValueError(
+                "'seconds_start' must be less than 'seconds_stop'.")
+        elif seconds_start >= duration:
+            raise ValueError("'seconds_start' must be less than duration.")
+        elif seconds_stop > duration:
+            raise ValueError(
+                "'seconds_stop' must not be greater than duration.")
+        elif seconds_start < 0:
+            raise ValueError("'seconds_start' must not be negative.")
+
+        first = (
+            1 if seconds_start == 0
+            else int(self.info.sample_rate * seconds_start))
+        
+        last = (
+            None if seconds_stop == duration
+            else int(self.info.sample_rate * seconds_stop))
+        
+        file = _utils.create_temp_file()
+        new = []
+
+        for frame in self._frames(first, last):
+            new.extend(frame)
+
+            if len(new) > 100000:
+                file.write(bytes(new))
+                new.clear()
+        
+        file.write(bytes(new))
+
+        bytes_per_frame = self.info.get_bytes_per_frame()
+        if last is not None:
+            new_byte_count = (last - first + 1) * bytes_per_frame
+        else:
+            new_byte_count = (
+                self._byte_count // bytes_per_frame - first + 1
+                * bytes_per_frame
+            )
+
+        return WaveData(file, self.info, new_byte_count)
 
 
 def _multiply_frames(

@@ -119,9 +119,9 @@ def play(
     Only one WAV can be played at once, and if this function is called
     while audio is playing or paused, a RuntimeError is raised.
     """
-    if _playback._paused:
+    if is_paused():
         raise RuntimeError("Audio is currently paused.")
-    elif _playback._playing:
+    elif is_playing():
         raise RuntimeError("Audio is already playing.")
 
     elif not isinstance(wav, (wavdata.WaveData, str)):
@@ -142,7 +142,7 @@ def play(
     # Allows for asynchronous execution.
     threading.Thread(target=_playback._play, daemon=True).start()
 
-    while not _playback._playing:
+    while not is_playing():
         if _playback._exception is not None:
             exception = _playback._exception
             _playback._exception = None
@@ -160,7 +160,7 @@ def stop() -> None:
 
     If no audio is playing or paused, a RuntimeError is raised.
     """
-    if not (_playback._playing or _playback._paused):
+    if not (is_playing() or is_paused()):
         raise RuntimeError("Audio is not playing.")
     
     _playback._wav = None
@@ -168,7 +168,7 @@ def stop() -> None:
     _playback._play_count = 0
 
     # Paused
-    if _playback._paused:
+    if is_paused():
         _playback._playing = False
         _playback._paused = False
         return
@@ -177,7 +177,7 @@ def stop() -> None:
     _playback._to_stop = True
     _playback._paused = False
 
-    while _playback._playing:
+    while is_playing():
         time.sleep(0.01)
 
 
@@ -187,12 +187,12 @@ def pause() -> None:
 
     If no audio is playing, a RuntimeError is raised.
     """
-    if not _playback._playing:
+    if not is_playing():
         raise RuntimeError("Audio is not playing.")
 
     _playback._to_pause = True
 
-    while not _playback._paused:
+    while not is_paused():
         time.sleep(0.01)
 
 
@@ -202,7 +202,7 @@ def resume() -> None:
 
     If no audio is paused, a RuntimeError is raised.
     """
-    if _playback._playing:
+    if is_playing():
         raise RuntimeError("Audio is already playing.")
     elif _playback._wav is None:
         raise RuntimeError("Audio is not playing.")
@@ -227,5 +227,19 @@ def wait() -> None:
         while True:
             time.sleep(999999)
 
-    while _playback._playing:
+    while is_playing():
         time.sleep(0.01)
+
+
+def is_playing() -> bool:
+    """
+    Audio is currently playing.
+    """
+    return _playback._playing
+
+
+def is_paused() -> bool:
+    """
+    Audio is currently paused.
+    """
+    return _playback._paused
