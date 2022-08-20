@@ -13,6 +13,7 @@ you can do lots with the WAV data:
 - Decrease audio volume
 - Reverse audio
 - Crop audio
+- Add silence (start/middle/end)
 - Play audio
 
 Any modified WAV data can subsequently be saved to a file, and fingers crossed, your desired changes will be successful!
