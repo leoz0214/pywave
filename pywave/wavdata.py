@@ -73,7 +73,7 @@ class WaveData:
         # Internal generator to get frames of audio.
         bytes_per_frame = self.info.get_bytes_per_frame()
         first = (first - 1) * bytes_per_frame + 1
-        last = (last - 1) * bytes_per_frame + 1 if last else None
+        last = last * bytes_per_frame if last is not None else None
         return self._chunks(bytes_per_frame, first, last, reversed)
     
     def _samples(
@@ -82,8 +82,8 @@ class WaveData:
         # Internal generator to get audio samples.
         byte_depth = self.info.byte_depth
         first = (first - 1) * byte_depth + 1
-        last = (last - 1) * byte_depth + 1 if last else None
-        return self._chunks(self.info.byte_depth, first, last, reversed)
+        last = last * byte_depth if last is not None else None
+        return self._chunks(byte_depth, first, last, reversed)
     
     def _chunks(self, byte_count: int, first: int = 1,
         last: Union[int, None] = None, reversed: bool = False) -> None:
@@ -332,9 +332,7 @@ class WaveData:
                 bytes_per_new_frame, sys.byteorder, signed=to_8_bits)
             new.extend(new_frame)
 
-            if len(new) > 100000:
-                file.write(bytes(new))
-                new.clear()
+            _check_write_new_to_file(file, new)
         
         file.write(bytes(new))
         
@@ -381,10 +379,7 @@ class WaveData:
 
         for frame in self._frames():
             new.extend(frame[start_index:stop_index])
-
-            if len(new) > 100000:
-                file.write(bytes(new))
-                new.clear()
+            _check_write_new_to_file(file, new)
         
         file.write(bytes(new))
 
@@ -449,10 +444,7 @@ class WaveData:
                 self.info.byte_depth, sys.byteorder, signed=signed)
 
             new.extend(new_bytes)
-
-            if len(new) > 100000:
-                file.write(bytes(new))
-                new.clear()
+            _check_write_new_to_file(file, new)
         
         file.write(bytes(new))
         
@@ -521,10 +513,7 @@ class WaveData:
 
         for frame in self._frames(first, last):
             new.extend(frame)
-
-            if len(new) > 100000:
-                file.write(bytes(new))
-                new.clear()
+            _check_write_new_to_file(file, new)
         
         file.write(bytes(new))
 
@@ -538,6 +527,73 @@ class WaveData:
             )
 
         return WaveData(file, self.info, new_byte_count)
+    
+    def prepend_silence(self, seconds: Union[int, float]) -> "WaveData":
+        """
+        Adds silence to the start of the audio.
+        """
+        return self.insert_silence(0, seconds)
+    
+    def append_silence(self, seconds: Union[int, float]) -> "WaveData":
+        """
+        Adds silence to the end of the audio.
+        """
+        return self.insert_silence(self.get_duration(), seconds)
+
+    def insert_silence(
+        self, timestamp: Union[int, float], seconds: Union[int, float]
+    ) -> "WaveData":
+        """
+        Adds silence to the audio at a certain time.
+
+        'timestamp' - the time at which to insert the silence (seconds)
+
+        'seconds' - number of seconds of silence
+        """
+        duration = self.get_duration()
+        bytes_per_frame = self.info.get_bytes_per_frame()
+        frame_count = self._byte_count // bytes_per_frame
+
+        if timestamp < 0:
+            raise ValueError("Timestamp must be greater than or equal to 0")
+        elif timestamp > duration:
+            raise ValueError("Timestamp must not be greater than duration")
+        elif seconds <= 0:
+            raise ValueError("Seconds must be greater than 0")
+        
+        frames_before = int(self.info.sample_rate * timestamp)
+        frames_of_silence = int(self.info.sample_rate * seconds)
+        frames_after = int(self.info.sample_rate * (duration - timestamp))
+
+        file = _utils.create_temp_file()
+        new = []
+
+        for frame in self._frames(last=frames_before + 1):
+            new.extend(frame)
+            _check_write_new_to_file(file, new)
+
+        for _ in range(frames_of_silence):
+            new.extend([0] * bytes_per_frame)
+            _check_write_new_to_file(file, new)
+        
+        for frame in self._frames(first=frame_count - frames_after + 1):
+            new.extend(frame)
+            _check_write_new_to_file(file, new)
+            
+        file.write(bytes(new))
+        new_byte_count = (
+            self._byte_count + frames_of_silence * bytes_per_frame)
+        
+        return WaveData(file, self.info, new_byte_count)
+
+
+def _check_write_new_to_file(
+    file: _utils.tempfile._TemporaryFileWrapper, new: list[int],
+    n: int = 100000) -> None:
+    # Writes new bytes to temp file if long enough (memory efficient)
+    if len(new) > n:
+        file.write(bytes(new))
+        new.clear()
 
 
 def _multiply_frames(
@@ -556,9 +612,7 @@ def _multiply_frames(
                 new.extend(frame * multiplier)
                 frame_count += multiplier
 
-                if len(new) > 100000:
-                    file.write(bytes(new))
-                    new.clear()
+                _check_write_new_to_file(file, new)       
         else:
             upper = math.ceil(multiplier)
             lower = math.floor(multiplier)
@@ -575,9 +629,7 @@ def _multiply_frames(
                 new.extend(frame * frames_to_add)
                 frame_count += frames_to_add
 
-                if len(new) > 100000:
-                    file.write(bytes(new))
-                    new.clear()
+                _check_write_new_to_file(file, new)
 
         file.write(bytes(new))
         byte_count = frame_count * wave_data.info.get_bytes_per_frame()
