@@ -8,6 +8,7 @@ The metadata is stored in the WaveMetadata class.
 import sys
 import math
 import fractions
+from timeit import repeat
 from typing import Union, Literal
 
 from . import _utils
@@ -31,6 +32,7 @@ class WaveMetadata:
     
     @property
     def byte_depth(self) -> int:
+        # Number of bytes per sample.
         return self.bit_depth // 8
     
     def get_bitrate(self) -> int:
@@ -199,7 +201,7 @@ class WaveData:
     
     def fit_time(
         self, seconds: Union[int, float],
-        change_sample: Literal["rate", "count"]) -> "WaveData":
+        change_sample: Literal["rate", "count"] = "rate") -> "WaveData":
         """
         Changes audio duration to a certain number of seconds, by
         changing the speed of audio playback. For example, if a 50
@@ -455,10 +457,8 @@ class WaveData:
         Reverses the audio data, for whatever reason.
         """
         file = _utils.create_temp_file()
-
         for frame in self._frames(reversed=True):
             file.write(frame)
-                   
         return WaveData(file, self.info, self._byte_count)
 
     def crop(
@@ -523,8 +523,7 @@ class WaveData:
         else:
             new_byte_count = (
                 self._byte_count // bytes_per_frame - first + 1
-                * bytes_per_frame
-            )
+                * bytes_per_frame)
 
         return WaveData(file, self.info, new_byte_count)
     
@@ -585,6 +584,34 @@ class WaveData:
             self._byte_count + frames_of_silence * bytes_per_frame)
         
         return WaveData(file, self.info, new_byte_count)
+    
+    def repeat(self, count: int = 1) -> "WaveData":
+        """
+        Repeats the audio data a given number of times.
+
+        For example, to make audio play twice in one file,
+        repeat once. This is the default.
+        """
+        if count < 0:
+            raise ValueError("'count' must be at least 0.")
+
+        file = _utils.create_temp_file()
+
+        for _ in range(count + 1):
+            for chunk in self._chunks(100000):
+                file.write(chunk)
+        
+        return WaveData(file, self.info, self._byte_count * (count + 1))
+
+    def __mul__(self, n: int) -> "WaveData":
+        # Multiplies audio (repeats n-1 times)
+        if not isinstance(n, int):
+            raise TypeError("Can only multiply WaveData by an integer.")
+        elif n < 1:
+            raise ValueError(
+                "Can only multiply WaveData by a positive integer.")
+        
+        return self.repeat(n - 1)
 
 
 def _check_write_new_to_file(
@@ -623,8 +650,7 @@ def _multiply_frames(
 
             for i, frame in enumerate(wave_data._frames()):
                 frames_to_add = (upper if
-                    (i * numerator) % denominator < numerator
-                    else lower)
+                    (i * numerator) % denominator < numerator else lower)
                 
                 new.extend(frame * frames_to_add)
                 frame_count += frames_to_add
@@ -634,4 +660,4 @@ def _multiply_frames(
         file.write(bytes(new))
         byte_count = frame_count * wave_data.info.get_bytes_per_frame()
 
-        return file, byte_count    
+        return file, byte_count
