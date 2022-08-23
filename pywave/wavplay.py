@@ -48,9 +48,7 @@ class _AudioPlayback:
                 int_type, output=True)
         except OSError:
             self._exception = RuntimeError(
-                "Unable to play audio - the sample rate is too {}.".format(
-                    "low" if self._wav.info.sample_rate < 44100 else "high"
-                ))
+                "Unable to play audio - an error occured")
             self._wav = None
             return
 

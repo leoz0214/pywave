@@ -8,7 +8,7 @@ The metadata is stored in the WaveMetadata class.
 import sys
 import math
 import fractions
-from timeit import repeat
+import itertools
 from typing import Union, Literal
 
 from . import _utils
@@ -140,6 +140,37 @@ class WaveData:
         for chunk in self._chunks(100000):
             file.write(chunk)
         return WaveData(file, self.info, self._byte_count)
+    
+    def _change_channel_count(self, count: int) -> "WaveData":
+        # Changes number of audio channels (internal use only).
+        if count == self.info.channels:
+            # No change
+            return self._copy()
+
+        channels = self.info.channels
+        byte_depth = self.info.byte_depth
+
+        file = _utils.create_temp_file()
+        new = []
+
+        # Which channels to get data from each frame.
+        # Example 2 -> 3 channels; [0, 1, 0]
+        # Example 5 -> 3 channels; [0, 1, 2]
+        channel_sequence = [
+            n for _, n in
+            zip(range(count), itertools.cycle(range(channels)))]
+        
+        for frame in self._frames():
+            for n in channel_sequence:
+                new.extend(frame[n * byte_depth:(n + 1) * byte_depth])
+            _check_write_new_to_file(file, new)
+        
+        file.write(bytes(new))
+        new_metadata = WaveMetadata(
+            self.info.sample_rate, self.info.bit_depth, count)
+        new_byte_count = round(self._byte_count * (count / channels))
+
+        return WaveData(file, new_metadata, new_byte_count)
 
     def change_speed(
         self, multiplier: Union[int, float],
