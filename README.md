@@ -15,6 +15,7 @@ you can do lots with the WAV data:
 - Crop audio
 - Add silence (start/middle/end)
 - Repeat audio
+- Join audio
 - Play audio
 
 Any modified WAV data can subsequently be saved to a file, and fingers crossed, your desired changes will be successful!
