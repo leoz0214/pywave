@@ -643,6 +643,92 @@ class WaveData:
                 "Can only multiply WaveData by a positive integer.")
         
         return self.repeat(n - 1)
+    
+    def split(
+        self, value: Union[int, float],
+        mode: Literal["time", "count"] = "time") -> list["WaveData"]:
+        """
+        Splits audio into several WaveData objects, either by time or
+        count.
+
+        For 'time', the duration of each part is in seconds,
+        and the last WaveData object should be the shortest.
+        But for 'count' the length of the WaveData objects are made as
+        uniform as possible.
+
+        Returns a list of WaveData objects.
+        """
+        bytes_per_frame = self.info.get_bytes_per_frame()
+        frame_count = self._byte_count // bytes_per_frame
+        parts = []
+
+        if mode == "time":
+            if value <= 0:
+                raise ValueError(
+                    "'value' must be greater than 0 for mode 'time'.")
+            elif value == self.get_duration():
+                # No change
+                return [self._copy()]
+
+            frames_per_part = int(self.info.sample_rate * value)
+            file = _utils.create_temp_file()
+            remaining = frames_per_part
+
+            for frame in self._frames():
+                file.write(frame)
+                remaining -= 1
+
+                if not remaining:
+                    byte_count = frames_per_part * bytes_per_frame
+                    parts.append(WaveData(file, self.info, byte_count))
+                    file = _utils.create_temp_file()
+                    remaining = frames_per_part
+            
+            # Leftover
+            if remaining < frames_per_part:
+                byte_count = (frames_per_part - remaining) * bytes_per_frame
+                parts.append(WaveData(file, self.info, byte_count))
+            
+            return parts
+
+        elif mode == "count":
+            if not isinstance(value, int):
+                raise TypeError(
+                    "'value' must be an integer for mode 'count'.")
+            if value < 1:
+                raise ValueError(
+                    "'value' must be at least 1 for mode 'count'.")
+            elif value == 1:
+                # No change
+                return [self._copy()]
+
+            base, one_more = divmod(frame_count, value)
+
+            file = _utils.create_temp_file()
+            remaining = base
+            still_one_more = bool(one_more)
+            if still_one_more:
+                remaining += 1
+                one_more -= 1
+            
+            for frame in self._frames():
+                file.write(frame)
+                remaining -= 1
+
+                if not remaining:
+                    byte_count = (base + still_one_more) * bytes_per_frame
+                    parts.append(WaveData(file, self.info, byte_count))
+
+                    file = _utils.create_temp_file()
+                    remaining = base
+                    still_one_more = bool(one_more)
+                    if still_one_more:
+                        remaining += 1
+                        one_more -= 1
+            
+            return parts
+
+        raise ValueError("'mode' must either be 'time' or 'count'.")
 
 
 def _check_write_new_to_file(

@@ -209,7 +209,7 @@ def resume() -> None:
         target=lambda: _playback._play(_playback._pass_count), daemon=True)
     player.start()
 
-    while not _playback._playing:
+    while not is_playing():
         time.sleep(0.01)
 
 

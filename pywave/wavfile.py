@@ -60,4 +60,6 @@ def write(
             f.writeframes(bytes(chunk))
 
 
-save = export = write # Aliases
+# Aliases
+load = read
+save = export = write
