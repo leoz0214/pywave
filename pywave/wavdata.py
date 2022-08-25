@@ -4,7 +4,6 @@ the audio bytes and corresponding metadata.
 
 The metadata is stored in the WaveMetadata class.
 """
-
 import sys
 import math
 import fractions
@@ -26,27 +25,36 @@ class WaveMetadata:
         'bit_depth' - number of bits to store each sample;
         'channels' - number of audio inputs/outputs
         """
-        self.sample_rate = sample_rate
-        self.bit_depth = bit_depth
-        self.channels = channels
+        self._sample_rate = sample_rate
+        self._bit_depth = bit_depth
+        self._channels = channels
+    
+    @property
+    def sample_rate(self) -> int:
+        return self._sample_rate
+    
+    @property
+    def bit_depth(self) -> int:
+        return self._bit_depth
+    
+    @property
+    def channels(self) -> int:
+        return self._channels
     
     @property
     def byte_depth(self) -> int:
-        # Number of bytes per sample.
         return self.bit_depth // 8
     
-    def get_bitrate(self) -> int:
-        """
-        Number of bits of data per second of audio.
-        Found by sample rate * bit depth * channel count
-        """
-        return self.sample_rate * self.bit_depth * self.channels
+    @property
+    def bitrate(self) -> int:
+        # Number of bits per second of audio.
+        return self._sample_rate * self._bit_depth * self._channels
     
     def get_bytes_per_frame(self) -> int:
         """
         Number of bytes for each channel to output one sample.
         """
-        return self.byte_depth * self.channels
+        return self.byte_depth * self._channels
 
     def _get_duration(self, byte_count: int) -> float:
         # Seconds of audio.
@@ -61,42 +69,51 @@ class WaveData:
         """
         NOT TO BE INITIALISED EXTERNALLY.
 
-        'data' - the bytes of the raw audio in a temporary file;
+        'temp_file' - the bytes of the raw audio in a temporary file;
         'metadata' - information about the audio.
         A WaveMetadata object is passed in.
         """
         self._file = temp_file
         self._byte_count = byte_count
         self.info = metadata
+    
+    @property
+    def size(self) -> int:
+        return self._byte_count
 
-    def _frames(
+    def frames(
         self, first: int = 1, last: Union[int, None] = None,
         reversed: bool = False) -> None:
-        # Internal generator to get frames of audio.
+        """
+        A generator which yields frames of audio as bytes.
+        """
         bytes_per_frame = self.info.get_bytes_per_frame()
         first = (first - 1) * bytes_per_frame + 1
         last = last * bytes_per_frame if last is not None else None
-        return self._chunks(bytes_per_frame, first, last, reversed)
-    
-    def _samples(
+        return self.chunks(bytes_per_frame, first, last, reversed)
+
+    def samples(
         self, first: int = 1, last: Union[int, None] = None,
         reversed: bool = False) -> None:
-        # Internal generator to get audio samples.
+        """
+        A generator which yields samples of audio as bytes.
+        """
         byte_depth = self.info.byte_depth
         first = (first - 1) * byte_depth + 1
         last = last * byte_depth if last is not None else None
-        return self._chunks(byte_depth, first, last, reversed)
+        return self.chunks(byte_depth, first, last, reversed)
     
-    def _chunks(self, byte_count: int, first: int = 1,
+    def chunks(self, byte_count: int, first: int = 1,
         last: Union[int, None] = None, reversed: bool = False) -> None:
-
-        # Internal generator to get audio in chunks.
+        """
+        A gemerator which yields audio bytes in chunks.
+        """
         if reversed:
             if last is None:
                 last = self._byte_count
 
             count, left = divmod(last - first, byte_count)
-            # cannot file seek a negative number from the start.
+            # Cannot file seek a negative number from the start.
             left += 1
 
             if not count:
@@ -121,7 +138,6 @@ class WaveData:
 
             if last is None:
                 chunk = self._file.read(byte_count)
-
                 while chunk:
                     yield chunk
                     chunk = self._file.read(byte_count)
@@ -130,22 +146,22 @@ class WaveData:
                 left += 1
 
                 for _ in range(count):
-                    yield self._file.read(byte_count)                  
-                
+                    yield self._file.read(byte_count)
                 yield self._file.read(left)
     
-    def _copy(self) -> "WaveData":
-        # Returns a copy of self.
+    def copy(self) -> "WaveData":
+        """
+        Returns a copy of the audio data.
+        """
         file = _utils.create_temp_file()
-        for chunk in self._chunks(100000):
+        for chunk in self.chunks(100000):
             file.write(chunk)
         return WaveData(file, self.info, self._byte_count)
     
     def _change_channel_count(self, count: int) -> "WaveData":
         # Changes number of audio channels (internal use only).
         if count == self.info.channels:
-            # No change
-            return self._copy()
+            return self.copy()
 
         channels = self.info.channels
         byte_depth = self.info.byte_depth
@@ -160,7 +176,7 @@ class WaveData:
             n for _, n in
             zip(range(count), itertools.cycle(range(channels)))]
         
-        for frame in self._frames():
+        for frame in self.frames():
             for n in channel_sequence:
                 new.extend(frame[n * byte_depth:(n + 1) * byte_depth])
             _check_write_new_to_file(file, new)
@@ -184,7 +200,7 @@ class WaveData:
         The speed can be changed either by changing the
         sample count, or the sample rate (default).
 
-        Changing sample rate is much faster.
+        Changing sample rate is much faster (in terms of processing).
 
         If you are slowing down audio, it is best to change by sample
         rate to avoid issues. But you can still keep the same sample
@@ -199,17 +215,14 @@ class WaveData:
         successfully.
         """
         if multiplier == 1:
-            # No change.
-            return self._copy()
+            return self.copy()
         elif multiplier < 0.01:
             # Processing takes way too long / not possible.
             raise ValueError("Multiplier must be at least 0.01")
         elif multiplier > 100:
             # Processing takes way too long.
             raise ValueError("Multiplier cannot be greater than 100")
-
-        if change_sample not in ("count", "rate"):
-            # Invalid mode.
+        elif change_sample not in ("count", "rate"):
             raise ValueError(
                 "'change_sample' must either be 'count' or 'rate'.")
 
@@ -217,15 +230,14 @@ class WaveData:
         
         if change_sample == "count":
             sample_multiplier = round(1 / multiplier, 8)
-            file, byte_count = _multiply_frames(self, sample_multiplier)        
-
+            file, byte_count = _multiply_frames(self, sample_multiplier)
             return WaveData(file, self.info, byte_count)
         
         new_sample_rate = round(self.info.sample_rate * multiplier)
         new_metadata = WaveMetadata(
             new_sample_rate, self.info.bit_depth, self.info.channels)
         
-        for chunk in self._chunks(100000):
+        for chunk in self.chunks(100000):
             file.write(chunk)
 
         return WaveData(file, new_metadata, self._byte_count)
@@ -307,15 +319,13 @@ class WaveData:
         if new_sample_rate < 1:
             raise ValueError("New sample rate too low")
         elif new_sample_rate == self.info.sample_rate:
-            # No change.
-            return self._copy()
+            return self.copy()
         
         multiplier = (
             value if mode == "multiplier"
             else new_sample_rate / self.info.sample_rate)
         
         file, byte_count = _multiply_frames(self, multiplier)
-
         new_metadata = WaveMetadata(
             new_sample_rate, self.info.bit_depth, self.info.channels)
         
@@ -324,7 +334,6 @@ class WaveData:
     def change_bit_depth(self, new_bit_depth: int) -> "WaveData":
         """
         Changes the number of bits used to store each sample.
-
         Reducing bit depth reduces file size but also quality.
 
         Bit depth must either be 8, 16, 24 or 32 bits.
@@ -337,8 +346,7 @@ class WaveData:
         new_bit_depth = int(new_bit_depth)
 
         if new_bit_depth == self.info.bit_depth:
-            # No change
-            return self._copy()
+            return self.copy()
 
         bytes_per_new_frame = new_bit_depth // 8
         multiplier = 2 ** (new_bit_depth - self.info.bit_depth)
@@ -349,7 +357,7 @@ class WaveData:
         file = _utils.create_temp_file()
         new = []
 
-        for sample in self._samples():
+        for sample in self.samples():
             # 8 bit must be signed, otherwise unsigned.
             # From 8 bit: signed -> unsigned
             # To 8 bit: unsigned -> signed
@@ -401,8 +409,7 @@ class WaveData:
         channel_number = int(channel_number)
         
         if self.info.channels == 1:
-            # Already mono
-            return self._copy()
+            return self.copy()
 
         file = _utils.create_temp_file()
         new = []
@@ -410,7 +417,7 @@ class WaveData:
         start_index = (channel_number - 1) * self.info.byte_depth
         stop_index = start_index + self.info.byte_depth
 
-        for frame in self._frames():
+        for frame in self.frames():
             new.extend(frame[start_index:stop_index])
             _check_write_new_to_file(file, new)
         
@@ -418,8 +425,7 @@ class WaveData:
 
         new_metadata = WaveMetadata(
             self.info.sample_rate, self.info.bit_depth, 1)
-        
-        byte_count = round(self._byte_count / self.info.channels)
+        byte_count = self._byte_count // self.info.channels
 
         return WaveData(file, new_metadata, byte_count)
     
@@ -438,13 +444,13 @@ class WaveData:
         audio volume by. Decibels are a logarithmic scale of how loud
         sound is (log 10). Therefore, decreasing decibels by 10 would
         make the audio 10 times quieter. And decreasing decibels by 3
-        would make the audio about 2 times quieter.
+        would make the audio about twice as quiet.
 
         The default mode is 'multiplier'.
 
         Warning: reducing volume drastically will make 8 bit audio
         quality way worse. 16 bit audio and greater will not
-        face the same issues, however.
+        face this issue to the same extent, however.
         """
         if mode == "multiplier":
             if not 0 < value < 1:
@@ -468,7 +474,7 @@ class WaveData:
         # Only 8 bit WAVs are unsigned.
         signed = self.info.bit_depth != 8
 
-        for sample in self._samples():
+        for sample in self.samples():
             current_value = int.from_bytes(
                 sample, sys.byteorder, signed=signed)
             
@@ -480,7 +486,6 @@ class WaveData:
             _check_write_new_to_file(file, new)
         
         file.write(bytes(new))
-        
         return WaveData(file, self.info, self._byte_count)
     
     def reverse(self) -> "WaveData":
@@ -488,15 +493,13 @@ class WaveData:
         Reverses the audio data, for whatever reason.
         """
         file = _utils.create_temp_file()
-        for frame in self._frames(reversed=True):
+        for frame in self.frames(reversed=True):
             file.write(frame)
         return WaveData(file, self.info, self._byte_count)
 
     def crop(
-        self,
-        seconds_start: Union[int, float, None] = None,
-        seconds_stop: Union[int, float, None] = None
-    ) -> "WaveData":
+        self, seconds_start: Union[int, float, None] = None,
+        seconds_stop: Union[int, float, None] = None) -> "WaveData":
         """
         Crops the WAV data, returning audio from a given time interval.
 
@@ -517,8 +520,6 @@ class WaveData:
             seconds_start = 0
         elif seconds_stop is None:
             seconds_stop = duration
-
-        duration = self.get_duration()
 
         if seconds_start >= seconds_stop:
             raise ValueError(
@@ -542,10 +543,9 @@ class WaveData:
         file = _utils.create_temp_file()
         new = []
 
-        for frame in self._frames(first, last):
+        for frame in self.frames(first, last):
             new.extend(frame)
-            _check_write_new_to_file(file, new)
-        
+            _check_write_new_to_file(file, new) 
         file.write(bytes(new))
 
         bytes_per_frame = self.info.get_bytes_per_frame()
@@ -571,8 +571,8 @@ class WaveData:
         return self.insert_silence(self.get_duration(), seconds)
 
     def insert_silence(
-        self, timestamp: Union[int, float], seconds: Union[int, float]
-    ) -> "WaveData":
+        self, timestamp: Union[int, float],
+        seconds: Union[int, float]) -> "WaveData":
         """
         Adds silence to the audio at a certain time.
 
@@ -585,11 +585,11 @@ class WaveData:
         frame_count = self._byte_count // bytes_per_frame
 
         if timestamp < 0:
-            raise ValueError("Timestamp must be greater than or equal to 0")
+            raise ValueError("'timestamp' must be greater than or equal to 0")
         elif timestamp > duration:
-            raise ValueError("Timestamp must not be greater than duration")
+            raise ValueError("'timestamp' must not be greater than duration")
         elif seconds <= 0:
-            raise ValueError("Seconds must be greater than 0")
+            raise ValueError("'seconds' must be greater than 0")
         
         frames_before = int(self.info.sample_rate * timestamp)
         frames_of_silence = int(self.info.sample_rate * seconds)
@@ -598,7 +598,7 @@ class WaveData:
         file = _utils.create_temp_file()
         new = []
 
-        for frame in self._frames(last=frames_before + 1):
+        for frame in self.frames(last=frames_before + 1):
             new.extend(frame)
             _check_write_new_to_file(file, new)
 
@@ -606,7 +606,7 @@ class WaveData:
             new.extend([0] * bytes_per_frame)
             _check_write_new_to_file(file, new)
         
-        for frame in self._frames(first=frame_count - frames_after + 1):
+        for frame in self.frames(first=frame_count - frames_after + 1):
             new.extend(frame)
             _check_write_new_to_file(file, new)
             
@@ -627,9 +627,8 @@ class WaveData:
             raise ValueError("'count' must be at least 0.")
 
         file = _utils.create_temp_file()
-
         for _ in range(count + 1):
-            for chunk in self._chunks(100000):
+            for chunk in self.chunks(100000):
                 file.write(chunk)
         
         return WaveData(file, self.info, self._byte_count * (count + 1))
@@ -654,7 +653,8 @@ class WaveData:
         For 'time', the duration of each part is in seconds,
         and the last WaveData object should be the shortest.
         But for 'count' the length of the WaveData objects are made as
-        uniform as possible.
+        uniform as possible. Be sensible and limit the number of parts
+        to about 100 if possible.
 
         Returns a list of WaveData objects.
         """
@@ -667,14 +667,13 @@ class WaveData:
                 raise ValueError(
                     "'value' must be greater than 0 for mode 'time'.")
             elif value == self.get_duration():
-                # No change
-                return [self._copy()]
+                return [self.copy()]
 
             frames_per_part = int(self.info.sample_rate * value)
             file = _utils.create_temp_file()
             remaining = frames_per_part
 
-            for frame in self._frames():
+            for frame in self.frames():
                 file.write(frame)
                 remaining -= 1
 
@@ -699,8 +698,7 @@ class WaveData:
                 raise ValueError(
                     "'value' must be at least 1 for mode 'count'.")
             elif value == 1:
-                # No change
-                return [self._copy()]
+                return [self.copy()]
 
             base, one_more = divmod(frame_count, value)
 
@@ -711,7 +709,7 @@ class WaveData:
                 remaining += 1
                 one_more -= 1
             
-            for frame in self._frames():
+            for frame in self.frames():
                 file.write(frame)
                 remaining -= 1
 
@@ -734,7 +732,7 @@ class WaveData:
 def _check_write_new_to_file(
     file: _utils.tempfile._TemporaryFileWrapper, new: list[int],
     n: int = 100000) -> None:
-    # Writes new bytes to temp file if long enough (memory efficient)
+    # Writes new bytes to temp file if long enough (memory efficiency).
     if len(new) > n:
         file.write(bytes(new))
         new.clear()
@@ -752,7 +750,7 @@ def _multiply_frames(
         if not decimal_part:
             multiplier = int(multiplier)
 
-            for frame in wave_data._frames():
+            for frame in wave_data.frames():
                 new.extend(frame * multiplier)
                 frame_count += multiplier
 
@@ -765,7 +763,7 @@ def _multiply_frames(
                 decimal_part).limit_denominator(10 ** 10)
             numerator, denominator = fraction.as_integer_ratio()
 
-            for i, frame in enumerate(wave_data._frames()):
+            for i, frame in enumerate(wave_data.frames()):
                 frames_to_add = (upper if
                     (i * numerator) % denominator < numerator else lower)
                 
@@ -775,6 +773,6 @@ def _multiply_frames(
                 _check_write_new_to_file(file, new)
 
         file.write(bytes(new))
-        byte_count = frame_count * wave_data.info.get_bytes_per_frame()
+        new_byte_count = frame_count * wave_data.info.get_bytes_per_frame()
 
-        return file, byte_count
+        return file, new_byte_count

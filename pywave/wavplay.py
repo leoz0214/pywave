@@ -3,7 +3,6 @@ This module plays WAV audio data one at a time.
 The audio can be paused, resumed, and stopped.
 It can also be played numerous times, including indefinitely.
 """
-
 import threading
 import time
 from typing import Union
@@ -60,7 +59,7 @@ class _AudioPlayback:
             # Chunk size is 1200 because it needs to be a multiple of
             # 1, 2, 3 and 4
             # Otherwise n byte depth will not play properly.
-            for chunk in self._wav._chunks(1200):
+            for chunk in self._wav.chunks(1200):
                 if pass_count:
                     pass_count -= 1
                 else:
@@ -75,7 +74,6 @@ class _AudioPlayback:
 
             # Stop (or pause).
             self._paused = self._to_pause
-
             if self._paused or self._to_stop:
                 break
 
@@ -93,7 +91,7 @@ _playback = _AudioPlayback()
 
 def play(
     wav: Union[wavdata.WaveData, str], number_of_times: int = 1,
-    wait_until_finished: bool = False) -> None:
+    wait_finish: bool = False) -> None:
     """
     Plays WAV audio a certain number of times, which can be
     asynchronous or waited for.
@@ -105,7 +103,7 @@ def play(
     to 0 means the audio never plays, and setting this to a negative
     number makes the audio play indefinitely (forever).
 
-    'wait_until_finished' - determines whether or not to keep on
+    'wait_finish' - determines whether or not to keep on
     executing the program while the audio is playing.
     Note: if this is set to Falseand this function is called at the
     end of a script, the script terminates, and audio will seemingly
@@ -148,7 +146,7 @@ def play(
         # To minimise resource usage - no difference should be noticed.
         time.sleep(0.01)
     
-    if wait_until_finished:
+    if wait_finish:
         wait()
 
 

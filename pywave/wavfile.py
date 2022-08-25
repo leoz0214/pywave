@@ -2,7 +2,6 @@
 This module allows WAV files to be read and saved - the skeleton
 of the package.
 """
-
 import wave
 import os
 
@@ -56,10 +55,10 @@ def write(
         f.setsampwidth(wave_data.info.byte_depth)
         f.setnchannels(wave_data.info.channels)
 
-        for chunk in wave_data._chunks(100000):
+        for chunk in wave_data.chunks(100000):
             f.writeframes(bytes(chunk))
 
 
-# Aliases
+# Aliases (convenience).
 load = read
 save = export = write

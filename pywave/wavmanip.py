@@ -52,12 +52,13 @@ def join(
 
     for i, wav in enumerate(new_wav_objects):
         new_byte_count += wav._byte_count
-        for chunk in wav._chunks(100000):
+        for chunk in wav.chunks(100000):
             file.write(chunk)
         
         # Not the last WAV object - possible WAV separator to be added.
         if i != wav_count - 1 and wav_separate:
-            for chunk in separator._chunks(100000):
+            new_byte_count += separator._byte_count
+            for chunk in separator.chunks(100000):
                 file.write(chunk)
     
     new_metadata = wavdata.WaveMetadata(sample_rate, bit_depth, channels)
