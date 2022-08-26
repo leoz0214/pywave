@@ -70,8 +70,8 @@ class WaveData:
         NOT TO BE INITIALISED EXTERNALLY.
 
         'temp_file' - the bytes of the raw audio in a temporary file;
-        'metadata' - information about the audio.
-        A WaveMetadata object is passed in.
+        'metadata' - information about the audio;
+        'byte_count' - number of bytes of audio.
         """
         self._file = temp_file
         self._byte_count = byte_count
@@ -727,6 +727,69 @@ class WaveData:
             return parts
 
         raise ValueError("'mode' must either be 'time' or 'count'.")
+    
+    def accelerate(
+        self, start_speed: Union[int, float], stop_speed: Union[int, float],
+        parts_count: int = 1000) -> "WaveData":
+        """
+        Uniformly increases speed of audio, from a start speed to a
+        higher final speed.
+
+        The more parts, the smoother the acceleration is.
+        However, the maximum number of parts is 1000.
+        """
+        if start_speed >= stop_speed:
+            raise ValueError("'start_speed' must be less than 'stop_speed'")
+        elif start_speed <= 0:
+            raise ValueError("'start_speed' must be greater than 0")
+        elif parts_count < 2:
+            raise ValueError("'parts_count' must be at least 2")
+        elif parts_count > 1000:
+            raise ValueError("'parts_count' must be less than 1000")
+        
+        return _change_speed(self, start_speed, stop_speed, parts_count)
+    
+    def decelerate(
+        self, start_speed: Union[int, float], stop_speed: Union[int, float],
+        parts_count: int = 1000) -> "WaveData":
+        """
+        Uniformly decreases speed of audio, from a start speed to a
+        lower final speed.
+
+        The more parts, the smoother the acceleration is.
+        However, the maximum number of parts is 1000.
+        """
+        if start_speed <= stop_speed:
+            raise ValueError(
+                "'start_speed' must be greater than 'stop_speed'")
+        elif stop_speed <= 0:
+            raise ValueError("'stop_speed' must be greater than 0")
+        elif parts_count < 2:
+            raise ValueError("'parts_count' must be at least 2")
+        elif parts_count > 1000:
+            raise ValueError("'parts_count' must be less than 1000")
+        
+        return _change_speed(self, start_speed, stop_speed, parts_count)
+
+
+def _change_speed(
+    wav: WaveData, start_speed: Union[int, float],
+    stop_speed: Union[int, float], parts_count: int) -> WaveData:
+    # Accelerates/decelearates audio speed.
+    current_speed = start_speed
+    rate_of_change = (stop_speed - start_speed) / (parts_count - 1)
+
+    parts = wav.split(parts_count, "count")
+    new = []
+    for part in parts:
+        new.append(part.change_speed(current_speed, "count"))
+        current_speed += rate_of_change
+
+    # To prevent circular import at the top.
+    from .wavmanip import join
+    return join(
+        new, wav.info.sample_rate,
+        wav.info.bit_depth, wav.info.channels)
 
 
 def _check_write_new_to_file(
