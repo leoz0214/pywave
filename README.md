@@ -17,6 +17,7 @@ you can do lots with the WAV data:
 - Repeat audio
 - Join audio
 - Split audio
+- Accelerate/decelerate audio (start at one speed, end at another)
 - Play audio
 
 Any modified WAV data can subsequently be saved to a file, and fingers crossed, your desired changes will be successful!
