@@ -236,8 +236,14 @@ def restart() -> None:
 
     To reset the playback count entirely i.e number of times
     to play the audio, use the 'reset' function instead.
+
+    If no audio is playing or paused, a RuntimeError is raised.
     """
-    pause()
+    if not (is_playing() or is_paused()):
+        raise RuntimeError("Audio is not playing.")
+    elif not is_paused():
+        pause()
+
     _playback._pass_count = 0
     resume()
 
@@ -249,8 +255,14 @@ def reset() -> None:
 
     To restart the current loop of audio playback, use the
     'restart' function instead.
+
+    If no audio is playing or paused, a RuntimeError is raised.
     """
-    pause()
+    if not (is_playing() or is_paused()):
+        raise RuntimeError("Audio is not playing.")
+    elif not is_paused():
+        pause()
+
     _playback._pass_count = 0
     _playback._play_count = _playback._starting_play_count
     resume()
