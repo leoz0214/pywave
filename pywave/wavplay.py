@@ -14,7 +14,7 @@ except ImportError:
         "'pyaudio' is required to use this module. "
         "https://pypi.org/project/PyAudio/")
 
-from . import wavdata
+from . import _data
 from . import wavfile
 
 
@@ -30,6 +30,7 @@ class _AudioPlayback:
         self._to_pause = False
         self._wav = None
         self._play_count = 0
+        self._starting_play_count = None
         self._exception = None
 
     def _play(self, pass_count: int = 0) -> None:
@@ -90,7 +91,7 @@ _playback = _AudioPlayback()
 
 
 def play(
-    wav: Union[wavdata.WaveData, str], number_of_times: int = 1,
+    wav: Union[_data.WaveData, str], number_of_times: int = 1,
     wait_finish: bool = False) -> None:
     """
     Plays WAV audio a certain number of times, which can be
@@ -120,7 +121,7 @@ def play(
     elif is_playing():
         raise RuntimeError("Audio is already playing.")
 
-    elif not isinstance(wav, (wavdata.WaveData, str)):
+    elif not isinstance(wav, (_data.WaveData, str)):
         raise TypeError(
             "'wav_data' must be of type 'WaveData' or a string (file).")
     elif not isinstance(number_of_times, int):
@@ -131,9 +132,9 @@ def play(
         return
     
     _playback._wav = (
-        wav if isinstance(wav, wavdata.WaveData) else wavfile.read(wav))
+        wav if isinstance(wav, _data.WaveData) else wavfile.read(wav))
 
-    _playback._play_count = number_of_times
+    _playback._play_count = _playback._starting_play_count = number_of_times
 
     # Allows for asynchronous execution.
     threading.Thread(target=_playback._play, daemon=True).start()
@@ -162,6 +163,7 @@ def stop() -> None:
     _playback._wav = None
     _playback._pass_count = 0
     _playback._play_count = 0
+    _playback._starting_play_count = None
 
     # Paused
     if is_paused():
@@ -225,6 +227,33 @@ def wait() -> None:
 
     while is_playing():
         time.sleep(0.01)
+
+
+def restart() -> None:
+    """
+    Goes back to the start of audio for this current loop
+    of audio playback.
+
+    To reset the playback count entirely i.e number of times
+    to play the audio, use the 'reset' function instead.
+    """
+    pause()
+    _playback._pass_count = 0
+    resume()
+
+
+def reset() -> None:
+    """
+    Entirely resets the current audio playback, including
+    the number of times to play the audio.
+
+    To restart the current loop of audio playback, use the
+    'restart' function instead.
+    """
+    pause()
+    _playback._pass_count = 0
+    _playback._play_count = _playback._starting_play_count
+    resume()
 
 
 def is_playing() -> bool:

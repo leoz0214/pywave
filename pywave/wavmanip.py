@@ -3,15 +3,15 @@ This module provides functions which allow for manipulation of WAV data.
 """
 from typing import Iterable, Union
 
-from . import wavdata
+from . import _data
 from . import _utils
 
 
 def join(
-    wav_objects: Iterable[wavdata.WaveData], sample_rate: int = 44100,
+    wav_objects: Iterable[_data.WaveData], sample_rate: int = 44100,
     bit_depth: int = 16, channels: int = 1,
-    separator: Union[wavdata.WaveData, int, float, None] = None
-) -> wavdata.WaveData:
+    separator: Union[_data.WaveData, int, float, None] = None
+) -> _data.WaveData:
     """
     Concatenates multiple WAV data objects into one object.
 
@@ -43,7 +43,7 @@ def join(
     
     file = _utils.create_temp_file()
     new_byte_count = 0
-    wav_separate = isinstance(separator, wavdata.WaveData)
+    wav_separate = isinstance(separator, _data.WaveData)
 
     if wav_separate:
         separator = separator.change_sample_rate(sample_rate)
@@ -61,5 +61,5 @@ def join(
             for chunk in separator.chunks(100000):
                 file.write(chunk)
     
-    new_metadata = wavdata.WaveMetadata(sample_rate, bit_depth, channels)
-    return wavdata.WaveData(file, new_metadata, new_byte_count)
+    new_metadata = _data.WaveMetadata(sample_rate, bit_depth, channels)
+    return _data.WaveData(file, new_metadata, new_byte_count)

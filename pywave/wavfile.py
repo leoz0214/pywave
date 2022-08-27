@@ -2,14 +2,14 @@
 This module allows WAV files to be read and saved - the skeleton
 of the package.
 """
-import wave
 import os
+import wave
 
-from . import wavdata
+from . import _data
 from . import _utils
 
 
-def read(file_location: str) -> wavdata.WaveData:
+def read(file_location: str) -> _data.WaveData:
     """
     Reads a WAV file from a given file location.
 
@@ -25,7 +25,7 @@ def read(file_location: str) -> wavdata.WaveData:
         channels = f.getnchannels()
         byte_count = frame_count * bit_depth // 8 * channels
 
-        metadata = wavdata.WaveMetadata(sample_rate, bit_depth, channels)
+        metadata = _data.WaveMetadata(sample_rate, bit_depth, channels)
         file = _utils.create_temp_file()
 
         count, remainder = divmod(frame_count, 100000)
@@ -33,11 +33,11 @@ def read(file_location: str) -> wavdata.WaveData:
             file.write(f.readframes(100000))
         file.write(f.readframes(remainder))
 
-        return wavdata.WaveData(file, metadata, byte_count)
+        return _data.WaveData(file, metadata, byte_count)
 
 
 def write(
-    wave_data: wavdata.WaveData, file_location: str,
+    wave_data: _data.WaveData, file_location: str,
     replace_existing_file: bool = True) -> None:
     """
     Writes WAV data to a given file.
@@ -45,7 +45,7 @@ def write(
     Warning: Existing file will be overwritten,
     unless specified otherwise.
     """
-    if not isinstance(wave_data, wavdata.WaveData):
+    if not isinstance(wave_data, _data.WaveData):
         raise TypeError("'wave_data' must be a WaveData object.")
     elif not replace_existing_file and os.path.isfile(file_location):
         raise FileExistsError(f"File already exists: '{file_location}'")
