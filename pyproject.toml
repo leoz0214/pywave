@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wavpy"
+version = "0.0.1"
+authors = [
+  { name="Leo Zhang", email="leozhang0214@gmail.com" },
+]
+description = "A package built to read, modify, play, and save WAV audio files."
+readme = "README.md"
+license = { file="LICENSE" }
+requires-python = ">=3.9"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/leoz0214/pywave"
+"Bug Tracker" = "https://github.com/leoz0214/pywave/issues"
