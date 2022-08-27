@@ -39,51 +39,43 @@ Here are some examples of code which can build a solid base for your utilisation
 
 ### Speeding up audio (without changing sample rate)
 
-`
-from pywave import wavfile
+    from pywave import wavfile
 
-audio = wavfile.read("audio.wav")
-double_speed_audio = audio.change_speed(2, "count")
-wavfile.write(double_speed_audio, "audiox2.wav")
-`
+    audio = wavfile.read("audio.wav")
+    double_speed_audio = audio.change_speed(2, "count")
+    wavfile.write(double_speed_audio, "audiox2.wav")
 
 ### Ensuring WAV files have a maximum bit depth of 16
 
-`
 from pywave import wavfile
 
-wav_files = ["1.wav", "2.wav", "3.wav"]
-for file in wav_files:
-    wav = wavfile.read(file)
-    if wav.info.bit_depth > 16:
-        wav = wav.change_bit_depth(16)
-        wavfile.write(wav, file)
-`
+    wav_files = ["1.wav", "2.wav", "3.wav"]
+    for file in wav_files:
+        wav = wavfile.read(file)
+        if wav.info.bit_depth > 16:
+            wav = wav.change_bit_depth(16)
+            wavfile.write(wav, file)
 
 ### Getting the second channel of audio of a stereo WAV and playing it 3 times.
 
-`
-from pywave import wavfile
-from pywave import wavplay
+    from pywave import wavfile
+    from pywave import wavplay
 
-wav = wavfile.read("audio.wav")
-channel_2 = wav.to_mono(2)
+    wav = wavfile.read("audio.wav")
+    channel_2 = wav.to_mono(2)
 
-wavplay.play(channel_2, 3, True)
-`
+    wavplay.play(channel_2, 3, True)
 
 ### Make the second half of a WAV quieter.
 
-`
-from pywave import wavfile
-from pywave import wavmanip
+    from pywave import wavfile
+    from pywave import wavmanip
 
-wav = wavfile.read("audio.wav")
-halves = wav.split(2, "count")
-halves[1] = halves[1].decrease_volume(10, "decibels")
+    wav = wavfile.read("audio.wav")
+    halves = wav.split(2, "count")
+    halves[1] = halves[1].decrease_volume(10, "decibels")
 
-edited_wav = wavmanip.join(
-    halves, wav.info.sample_rate,
-    wav.info.bit_depth, wav.info.channels)
-wavfile.write(edited_wav, "new.wav")
-`
+    edited_wav = wavmanip.join(
+        halves, wav.info.sample_rate,
+        wav.info.bit_depth, wav.info.channels)
+    wavfile.write(edited_wav, "new.wav")
