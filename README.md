@@ -47,7 +47,7 @@ Here are some examples of code which can build a solid base for your utilisation
 
 ### Ensuring WAV files have a maximum bit depth of 16
 
-from pywave import wavfile
+    from pywave import wavfile
 
     wav_files = ["1.wav", "2.wav", "3.wav"]
     for file in wav_files:
